@@ -1,0 +1,6 @@
+setuptools~=50.3.2
+numpy~=1.19.0
+sentence_transformers
+torch
+tensorflow
+transformers
