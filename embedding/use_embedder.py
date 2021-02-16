@@ -7,9 +7,9 @@ import tensorflow_hub as hub
 
 class USEEmbedder(Embedder):
 
-    def __init__(self, module_url=None):
+    def __init__(self, module_url=None, batch_size=32):
         self.embedder = None
-        super().__init__(module_url=module_url)
+        super().__init__(module_url=module_url, batch_size=batch_size)
 
     def prepare(self, **kwargs):
         module_url = kwargs['module_url'] or "https://tfhub.dev/google/universal-sentence-encoder-large/5"

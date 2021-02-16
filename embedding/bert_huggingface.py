@@ -26,7 +26,7 @@ class BertHuggingface(Embedder):
             print('using bert with cuda')
         self.model.eval()
 
-    def embed(self, text_list):
+    def embed(self, text_list, verbose=False):
         outputs = []
         num_steps = int(math.ceil(len(text_list) / self.batch_size))
         for i in range(num_steps):
@@ -56,7 +56,7 @@ class BertHuggingface(Embedder):
             del attention_mask
             del out
             torch.cuda.empty_cache()
-            if i % 100 == 0:
+            if verbose and i % 100 == 0:
                 print("at step", i, "of", num_steps)
 
         return np.vstack(outputs)
