@@ -7,6 +7,10 @@ from transformers import BertForSequenceClassification, BertTokenizer, AdamW
 import torch
 from torch.nn import functional as F
 
+def first_zero(arr):
+    mask = arr==0
+    return np.where(mask.any(axis=1), mask.argmax(axis=1), -1)
+
 
 class BertHuggingface(Embedder):
 
@@ -45,7 +49,19 @@ class BertHuggingface(Embedder):
             arr = hidden_states[-1].to('cpu')
             arr = arr.detach().numpy()
 
-            embedding_output = np.mean(arr, axis=1)
+            attention_mask = attention_mask.to('cpu')
+            att_mask = attention_mask.detach().numpy()
+
+            zeros = first_zero(att_mask)
+            array = []
+            for entry in range(len(partial_input)):
+                attention_masked_non_zero_entries = arr[entry]
+                if zeros[entry] > 0:
+                    attention_masked_non_zero_entries = attention_masked_non_zero_entries[:zeros[entry]]
+                array.append(np.mean(attention_masked_non_zero_entries, axis=0))
+
+            embedding_output = np.asarray(array)
+
             outputs.append(embedding_output)
             out = out.logits
             out = out.to('cpu')
