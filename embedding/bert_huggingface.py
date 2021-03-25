@@ -6,10 +6,22 @@ from transformers import BertForSequenceClassification, BertTokenizer, AdamW
 
 import torch
 from torch.nn import functional as F
+import sklearn
 
 def first_zero(arr):
     mask = arr==0
     return np.where(mask.any(axis=1), mask.argmax(axis=1), -1)
+
+def compute_cosine_similarities(X, x):
+    return sklearn.metrics.pairwise.cosine_similarity(X, np.array([x]))
+
+def find_maxes(X, num):
+    l = list(enumerate(X))
+    maxes = []
+    for i in range(num):
+        maxes.append(max(l, key=(lambda x: x[1]))[0])
+        l[maxes[-1]] = (maxes[-1], 0)
+    return maxes
 
 
 class BertHuggingface(Embedder):
@@ -161,3 +173,61 @@ class BertHuggingface(Embedder):
             del partial_labels
         self.model.eval()
         torch.cuda.empty_cache()
+
+    def attention(self, text_list, method='cosine-similarity', token_per_embedding=3):
+        if method not in ['cosine-similarity', 'projection']:
+            raise Exception('Method not applicable!')
+        outputs = []
+        num_steps = int(math.ceil(len(text_list) / self.batch_size))
+        for i in range(num_steps):
+            ul = min((i + 1) * self.batch_size, len(text_list))
+            partial_input = text_list[i * self.batch_size:ul]
+            encoding = self.tokenizer(partial_input, return_tensors='pt', padding=True, truncation=True)
+            if torch.cuda.is_available():
+                encoding = encoding.to('cuda')
+            input_ids = encoding['input_ids']
+            attention_mask = encoding['attention_mask']
+            out = self.model(input_ids, attention_mask=attention_mask)
+            encoding = encoding.to('cpu')
+
+            hidden_states = out.hidden_states
+
+            arr = hidden_states[-1].to('cpu')
+            arr = arr.detach().numpy()
+
+            attention_mask = attention_mask.to('cpu')
+            att_mask = attention_mask.detach().numpy()
+
+            zeros = first_zero(att_mask)
+            array = []
+            attentions = []
+            output = []
+            for entry in range(len(partial_input)):
+                attention_masked_non_zero_entries = arr[entry]
+                if zeros[entry] > 0:
+                    attention_masked_non_zero_entries = attention_masked_non_zero_entries[:zeros[entry]]
+                array.append(np.mean(attention_masked_non_zero_entries, axis=0))
+                if method == 'cosine-similarity':
+                    cosines = compute_cosine_similarities(attention_masked_non_zero_entries, array[-1])
+                    indicies = find_maxes(cosines, token_per_embedding)
+                    tokens = [self.tokenizer.decode([input_ids[entry][i]]) for i in indicies]
+                    output.append(tokens)
+                elif method == 'projection':
+                    pass
+
+            embedding_output = np.asarray(output)
+
+            outputs.append(embedding_output)
+            out = out.logits
+            out = out.to('cpu')
+
+            del encoding
+            del partial_input
+            del input_ids
+            del attention_mask
+            del out
+            torch.cuda.empty_cache()
+            if self.verbose and i % 100 == 0:
+                print("at step", i, "of", num_steps)
+
+        return np.vstack(outputs)
