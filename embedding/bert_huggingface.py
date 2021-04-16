@@ -39,7 +39,9 @@ class BertHuggingface(Embedder):
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
         if torch.cuda.is_available():
             self.model = self.model.to('cuda')
-            print('using bert with cuda')
+            print('Using Bert with CUDA/GPU')
+        else:
+            print('WARNING! Using Bert on CPU!')
         self.model.eval()
 
     def embed(self, text_list):
@@ -213,7 +215,11 @@ class BertHuggingface(Embedder):
                     tokens = [self.tokenizer.decode([input_ids[entry][i]]) for i in indicies]
                     output.append(tokens)
                 elif method == 'projection':
-                    pass
+                    projects = [(np.dot(array[-1], v)/np.sqrt(sum(v**2))**2)*v for v in attention_masked_non_zero_entries]
+                    projects = [np.linalg.norm(p)/np.linalg.norm(array[-1]) for p in projects]
+                    indicies = find_maxes(projects, token_per_embedding)
+                    tokens = [self.tokenizer.decode([input_ids[entry][i]]) for i in indicies]
+                    output.append(tokens)
 
             embedding_output = np.asarray(output)
 
