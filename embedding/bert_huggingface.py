@@ -8,20 +8,27 @@ import torch
 from torch.nn import functional as F
 import sklearn
 
+def compute_cosine_similarities(X, x):
+    return sklearn.metrics.pairwise.cosine_similarity(X, np.array([x]))
+
 def first_zero(arr):
     mask = arr==0
     return np.where(mask.any(axis=1), mask.argmax(axis=1), -1)
 
-def compute_cosine_similarities(X, x):
-    return sklearn.metrics.pairwise.cosine_similarity(X, np.array([x]))
-
 def find_maxes(X, num):
     l = list(enumerate(X))
+    l[0] = (0, -10)
+    l[-1] = (len(l)-1, -10)
     maxes = []
-    for i in range(num):
+    for i in range(min(num, len(l)-2)):
         maxes.append(max(l, key=(lambda x: x[1]))[0])
-        l[maxes[-1]] = (maxes[-1], 0)
+        l[maxes[-1]] = (maxes[-1], -10)
     return maxes
+
+def normalized(a, axis=-1, order=2):
+    l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
+    l2[l2==0] = 1
+    return a / np.expand_dims(l2, axis)
 
 
 class BertHuggingface(Embedder):
@@ -175,10 +182,32 @@ class BertHuggingface(Embedder):
             del partial_labels
         self.model.eval()
         torch.cuda.empty_cache()
+        
+    def __combine_words(self, input_ids, non_zeros):
+        combis = []
+        actual_words = []
+        for n, each in enumerate(input_ids):
+            word = self.tokenizer.decode([each])
+            if word.startswith('##'):
+                if combis and combis[-1][-1] == n-1:
+                    combis[-1].append(n)
+                else:
+                    combis.append([n-1,n])
+                actual_words[-1] = actual_words[-1] + word[2:]
+            else:
+                actual_words.append(word)
+        combi_values = []
+        for each in combis:
+            v = sum([x for n, x in enumerate(non_zeros) if n in each])
+            combi_values.append(normalized(v))
+        combi_values = np.array(combi_values)
+        return_non_zeros = list(non_zeros)
+        for x in reversed(range(len(combis))):
+            return_non_zeros[combis[x][0]:combis[x][-1]+1] = combi_values[x]
+        return_non_zeros = np.array(return_non_zeros, dtype=float)
+        return actual_words, return_non_zeros
 
-    def attention(self, text_list, method='cosine-similarity', token_per_embedding=3):
-        if method not in ['cosine-similarity', 'projection']:
-            raise Exception('Method not applicable!')
+    def attention(self, text_list, token_per_embedding=3):
         outputs = []
         num_steps = int(math.ceil(len(text_list) / self.batch_size))
         for i in range(num_steps):
@@ -208,18 +237,12 @@ class BertHuggingface(Embedder):
                 attention_masked_non_zero_entries = arr[entry]
                 if zeros[entry] > 0:
                     attention_masked_non_zero_entries = attention_masked_non_zero_entries[:zeros[entry]]
-                array.append(np.mean(attention_masked_non_zero_entries, axis=0))
-                if method == 'cosine-similarity':
-                    cosines = compute_cosine_similarities(attention_masked_non_zero_entries, array[-1])
-                    indicies = find_maxes(cosines, token_per_embedding)
-                    tokens = [self.tokenizer.decode([input_ids[entry][i]]) for i in indicies]
-                    output.append(tokens)
-                elif method == 'projection':
-                    projects = [(np.dot(array[-1], v)/np.sqrt(sum(v**2))**2)*v for v in attention_masked_non_zero_entries]
-                    projects = [np.linalg.norm(p)/np.linalg.norm(array[-1]) for p in projects]
-                    indicies = find_maxes(projects, token_per_embedding)
-                    tokens = [self.tokenizer.decode([input_ids[entry][i]]) for i in indicies]
-                    output.append(tokens)
+                actual_words, combined_entries = self.__combine_words(input_ids[entry], attention_masked_non_zero_entries)
+                array.append(np.mean(combined_entries, axis=0))
+                cosines = compute_cosine_similarities(combined_entries, array[-1])
+                indicies = find_maxes(cosines, token_per_embedding)
+                tokens = [actual_words[i] for i in indicies]
+                output.append(tokens)
 
             embedding_output = np.asarray(output)
 
