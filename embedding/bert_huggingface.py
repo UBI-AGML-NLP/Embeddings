@@ -7,6 +7,8 @@ from transformers import BertForSequenceClassification, BertTokenizer, AdamW
 import torch
 from torch.nn import functional as F
 import sklearn
+from sklearn.metrics.classification import precision_recall_fscore_support
+
 
 def compute_cosine_similarities(X, x):
     return sklearn.metrics.pairwise.cosine_similarity(X, np.array([x]))
@@ -138,6 +140,12 @@ class BertHuggingface(Embedder):
             del out
             torch.cuda.empty_cache()
         return np.vstack(outputs)
+
+    def eval(self, texts, labels):
+        values = self.predict(texts)
+        values = [x.argmax() for x in values]
+        f1 = precision_recall_fscore_support(labels, values, average='weighted')
+        return f1
 
     def retrain_one_epoch(self, text_list, labels):
         self.model.train()
