@@ -33,11 +33,11 @@ def normalized(a, axis=-1, order=2):
 
 class BertHuggingface(Embedder):
 
-    def __init__(self, num_labels, model_name=None, batch_size=16):
+    def __init__(self, num_labels, model_name=None, batch_size=16, verbose=False):
         self.model = None
         self.tokenizer = None
         self.num_labels = num_labels
-        super().__init__(model_name=model_name, batch_size=batch_size)
+        super().__init__(model_name=model_name, batch_size=batch_size, verbose=verbose)
 
     def prepare(self, **kwargs):
         model_name = kwargs.pop('model_name') or 'bert-base-uncased'
