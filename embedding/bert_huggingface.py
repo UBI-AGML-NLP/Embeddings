@@ -41,16 +41,19 @@ class BertHuggingface(Embedder):
         self.num_labels = num_labels
         super().__init__(model_name=model_name, batch_size=batch_size, verbose=verbose)
 
-    def prepare(self, **kwargs):
-        model_name = kwargs.pop('model_name') or 'bert-base-uncased'
-
-        self.model = BertForSequenceClassification.from_pretrained(model_name, return_dict=True, num_labels=self.num_labels, output_hidden_states=True)
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+    def __switch_to_cuda(self):
         if torch.cuda.is_available():
             self.model = self.model.to('cuda')
             print('Using Bert with CUDA/GPU')
         else:
             print('WARNING! Using Bert on CPU!')
+
+    def prepare(self, **kwargs):
+        model_name = kwargs.pop('model_name') or 'bert-base-uncased'
+
+        self.model = BertForSequenceClassification.from_pretrained(model_name, return_dict=True, num_labels=self.num_labels, output_hidden_states=True)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.__switch_to_cuda()
         self.model.eval()
 
     def embed(self, text_list):
@@ -106,10 +109,9 @@ class BertHuggingface(Embedder):
 
     def load(self, path):
         self.model = self.model.to('cpu')
+        print('Loading existing model...')
         self.model = BertForSequenceClassification.from_pretrained(path)
-        if torch.cuda.is_available():
-            self.model = self.model.to('cuda')
-            print('using bert with cuda')
+        self.__switch_to_cuda()
         self.model.eval()
 
     def predict(self, text_list):
