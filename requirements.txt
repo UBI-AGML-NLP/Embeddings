@@ -4,3 +4,4 @@ sentence_transformers
 torch
 tensorflow
 transformers
+scikit-learn==0.23.2

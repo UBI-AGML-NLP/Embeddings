@@ -7,7 +7,7 @@ from transformers import BertForSequenceClassification, BertTokenizer, AdamW
 import torch
 from torch.nn import functional as F
 import sklearn
-from sklearn.metrics.classification import precision_recall_fscore_support
+from sklearn.metrics import precision_recall_fscore_support
 
 
 def compute_cosine_similarities(X, x):
