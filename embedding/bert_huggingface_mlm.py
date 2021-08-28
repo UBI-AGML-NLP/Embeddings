@@ -138,6 +138,7 @@ class BertHuggingfaceMLM(Embedder):
                 loss = outputs.loss
                 if device == 'cuda':
                     outputs.logits.to('cpu')
+                    loss.to('cpu')
 
                 # calculate loss for every parameter that needs grad update
                 loss.backward()
@@ -157,6 +158,7 @@ class BertHuggingfaceMLM(Embedder):
                 del input_ids
                 del attention_mask
                 del labels
+                del outputs
 
         optim.zero_grad()
         self.model.eval()
