@@ -98,7 +98,7 @@ class BertHuggingfaceMLM(Embedder):
     def load(self, path):
         self.model = self.model.to('cpu')
         print('Loading existing model...')
-        self.model = BertForMaskedLM.from_pretrained(path)
+        self.model = BertForMaskedLM.from_pretrained(path, return_dict=True, output_hidden_states=True)
         self.__switch_to_cuda()
         self.model.eval()
 
