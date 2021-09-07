@@ -113,6 +113,7 @@ class BertHuggingfaceMLM(Embedder):
         return inputs
 
     def retrain(self, masked_texts, labels, epochs=2):
+        losses = []
         inputs = self.create_tokens(masked_texts, labels)
         dataset = MLMDataset(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
@@ -148,6 +149,7 @@ class BertHuggingfaceMLM(Embedder):
                 # print relevant info to progress bar
                 loop.set_description(f'Epoch {epoch}')
                 loop.set_postfix(loss=loss.item())
+                losses.append(loss.item())
                 loss = loss.detach().item()
 
                 # put everything back on the cpu
@@ -163,4 +165,16 @@ class BertHuggingfaceMLM(Embedder):
         optim.zero_grad()
         self.model.eval()
         torch.cuda.empty_cache()
+        return losses
 
+    def eval(self, texts, labels, top_k=1):
+        unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer)
+        in_top_k = [0]*len(texts)
+        for i in range(len(texts)):
+            res = unmasker(texts[i], top_k=top_k)
+            #print(res)
+            for elem in res:
+                if elem['sequence'] == labels[i]:
+                    in_top_k[i] = 1
+        acc = sum(in_top_k)/len(in_top_k)
+        return acc
