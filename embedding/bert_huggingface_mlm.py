@@ -168,11 +168,15 @@ class BertHuggingfaceMLM(Embedder):
         return losses
 
     def eval(self, texts, labels, top_k=1):
-        unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer)
+        if torch.cuda.is_available():
+            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=0)
+        else:
+            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=-1)
+
         in_top_k = [0]*len(texts)
         for i in range(len(texts)):
+            #
             res = unmasker(texts[i], top_k=top_k)
-            #print(res)
             for elem in res:
                 if elem['sequence'] == labels[i]:
                     in_top_k[i] = 1
