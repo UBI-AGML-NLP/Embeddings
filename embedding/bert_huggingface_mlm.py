@@ -1,7 +1,7 @@
 from .embedder import Embedder
 import numpy as np
 import math
-from transformers import BertForMaskedLM, BertTokenizer, AdamW, pipeline
+from transformers import AutoModelForMaskedLM, AutoTokenizer, AdamW, pipeline
 import torch
 from tqdm import tqdm
 import random
@@ -42,8 +42,8 @@ class BertHuggingfaceMLM(Embedder):
     def prepare(self, **kwargs):
         model_name = kwargs.pop('model_name') or 'bert-base-uncased'
 
-        self.model = BertForMaskedLM.from_pretrained(model_name, return_dict=True, output_hidden_states=True)
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForMaskedLM.from_pretrained(model_name, return_dict=True, output_hidden_states=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.__switch_to_cuda()
         self.model.eval()
 
@@ -100,7 +100,7 @@ class BertHuggingfaceMLM(Embedder):
     def load(self, path):
         self.model = self.model.to('cpu')
         print('Loading existing model...')
-        self.model = BertForMaskedLM.from_pretrained(path, return_dict=True, output_hidden_states=True)
+        self.model = AutoModelForMaskedLM.from_pretrained(path, return_dict=True, output_hidden_states=True)
         self.__switch_to_cuda()
         self.model.eval()
 

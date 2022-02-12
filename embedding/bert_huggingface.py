@@ -2,7 +2,7 @@ from .embedder import Embedder
 import numpy as np
 import math
 
-from transformers import BertForSequenceClassification, BertTokenizer, AdamW
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, AdamW
 
 import torch
 from torch.nn import functional as F
@@ -65,11 +65,11 @@ class BertHuggingface(Embedder):
     def prepare(self, **kwargs):
         model_name = kwargs.pop('model_name') or 'bert-base-uncased'
 
-        self.model = BertForSequenceClassification.from_pretrained(model_name, return_dict=True,
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_name, return_dict=True,
                                                                    num_labels=self.num_labels,
                                                                    output_hidden_states=True,
                                                                    output_attentions=True)
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.__switch_to_cuda()
         self.model.eval()
 
@@ -128,7 +128,7 @@ class BertHuggingface(Embedder):
     def load(self, path):
         self.model = self.model.to('cpu')
         print('Loading existing model...')
-        self.model = BertForSequenceClassification.from_pretrained(path)
+        self.model = AutoModelForSequenceClassification.from_pretrained(path)
         self.__switch_to_cuda()
         self.model.eval()
 
