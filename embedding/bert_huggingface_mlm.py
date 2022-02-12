@@ -4,6 +4,8 @@ import math
 from transformers import BertForMaskedLM, BertTokenizer, AdamW, pipeline
 import torch
 from tqdm import tqdm
+import random
+import string
 
 
 def first_zero(arr):
@@ -167,18 +169,40 @@ class BertHuggingfaceMLM(Embedder):
         torch.cuda.empty_cache()
         return losses
 
+    def lazy_retrain(self, texts, epochs=2):
+        """
+        Retrain on any texts with automated, but random placed masks
+        """
+
+        def mask_random_word(doc):
+            MASK = '[MASK]'
+            words = doc.split(' ')
+            mask = int(random.random() * len(words))
+            if words[mask][-1] in string.punctuation:
+                MASK += words[mask][-1]
+            words[mask] = MASK
+            masked = ' '.join(words)
+            return masked
+
+        masked_texts = []
+        labels = texts
+        for text in texts:
+            masked_texts.append(mask_random_word(text))
+
+        self.retrain(masked_texts, labels, epochs=epochs)
+
     def eval(self, texts, labels, top_k=1):
         if torch.cuda.is_available():
             unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=0)
         else:
             unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=-1)
 
-        in_top_k = [0]*len(texts)
+        in_top_k = [0] * len(texts)
         for i in range(len(texts)):
             #
             res = unmasker(texts[i], top_k=top_k)
             for elem in res:
                 if elem['sequence'] == labels[i]:
                     in_top_k[i] = 1
-        acc = sum(in_top_k)/len(in_top_k)
+        acc = sum(in_top_k) / len(in_top_k)
         return acc
