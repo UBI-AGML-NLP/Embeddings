@@ -189,7 +189,7 @@ class BertHuggingfaceMLM(Embedder):
         for text in texts:
             masked_texts.append(mask_random_word(text))
 
-        self.retrain(masked_texts, labels, epochs=epochs)
+        return self.retrain(masked_texts, labels, epochs=epochs)
 
     def eval(self, texts, labels, top_k=1):
         if torch.cuda.is_available():
