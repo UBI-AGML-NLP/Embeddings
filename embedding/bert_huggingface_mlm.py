@@ -48,6 +48,9 @@ class BertHuggingfaceMLM(Embedder):
         self.model.eval()
 
     def embed(self, text_list):
+        # in case we get a tuple instead of a list:
+        text_list = list(text_list)
+
         outputs = []
         num_steps = int(math.ceil(len(text_list) / self.batch_size))
         for i in range(num_steps):
