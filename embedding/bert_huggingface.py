@@ -38,6 +38,8 @@ class BertHuggingface(Embedder):
                                                                         output_hidden_states=True,
                                                                         output_attentions=True)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         self.__switch_to_cuda()
         self.model.eval()
 
@@ -92,6 +94,10 @@ class BertHuggingface(Embedder):
                 print("at step", i, "of", num_steps)
 
         return np.vstack(outputs)
+
+    def embed_generator(self, text_list_generator):
+        for raw_texts in text_list_generator:
+            yield self.embed(raw_texts)
 
     def save(self, path):
         self.model.save_pretrained(path)
