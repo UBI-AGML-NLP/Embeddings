@@ -210,3 +210,11 @@ class BertHuggingfaceMLM(Embedder):
                     in_top_k[i] = 1
         acc = sum(in_top_k) / len(in_top_k)
         return acc
+
+    def predict(self, text_list):
+        if torch.cuda.is_available():
+            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=0)
+        else:
+            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=-1)
+        predictions = unmasker(text_list, top_k=1)
+        return predictions
