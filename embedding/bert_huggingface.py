@@ -145,8 +145,8 @@ class BertHuggingface(Embedder):
         return f1
 
     def retrain(self, texts, labels, epochs=2):
-        for _ in epochs:
-            retrain_one_epoch(texts, labels)
+        for _ in range(epochs):
+            self.retrain_one_epoch(texts, labels)
 
     def retrain_one_epoch(self, text_list, labels):
         self.model.train()
