@@ -178,6 +178,7 @@ class BertHuggingfaceMLM(Embedder):
         """
 
         def mask_random_word(doc):
+            doc = doc.strip(' ')  # remove leading/tailing whitespaces
             MASK = '[MASK]'
             words = doc.split(' ')
             mask = int(random.random() * len(words))
