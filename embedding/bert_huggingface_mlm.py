@@ -188,9 +188,16 @@ class BertHuggingfaceMLM(Embedder):
             masked = ' '.join(words)
             return masked
 
+        def clear(doc):
+            words = doc.split(' ')
+            words = [x for x in words if x]
+            s_doc = ' '.join(words)
+            return s_doc
+
         masked_texts = []
         labels = texts
         for text in texts:
+            text = clear(text)
             masked_texts.append(mask_random_word(text))
 
         return self.retrain(masked_texts, labels, epochs=epochs)
