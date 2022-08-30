@@ -6,6 +6,7 @@ import torch
 from tqdm import tqdm
 import random
 import string
+import types
 
 
 def first_zero(arr):
@@ -43,7 +44,7 @@ class BertHuggingfaceMLM(Embedder):
         model_name = kwargs.pop('model_name') or 'bert-base-uncased'
 
         self.model = AutoModelForMaskedLM.from_pretrained(model_name, return_dict=True, output_hidden_states=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, max_length=512, truncation=True)
         self.__switch_to_cuda()
         self.model.eval()
 
@@ -190,7 +191,8 @@ class BertHuggingfaceMLM(Embedder):
         """
 
         def mask_random_word(doc):
-            MASK = '[MASK]'
+            doc = doc.strip(' ')  # remove leading/tailing whitespaces
+            MASK = self.tokenizer.mask_token
             words = doc.split(' ')
             mask = int(random.random() * len(words))
             if words[mask][-1] in string.punctuation:
@@ -199,25 +201,45 @@ class BertHuggingfaceMLM(Embedder):
             masked = ' '.join(words)
             return masked
 
+        def clear(doc):
+            words = doc.split(' ')
+            words = [x for x in words if x]
+            s_doc = ' '.join(words)
+            return s_doc
+
         masked_texts = []
         labels = texts
         for text in texts:
+            text = clear(text)
             masked_texts.append(mask_random_word(text))
 
         return self.retrain(masked_texts, labels, epochs=epochs)
 
     def eval(self, texts, labels, top_k=1):
-        if torch.cuda.is_available():
-            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=0)
-        else:
-            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=-1)
-
+        preds = self.predict(texts, top_k=top_k)
         in_top_k = [0] * len(texts)
-        for i in range(len(texts)):
+        for i, pred_single  in enumerate(preds):
             #
-            res = unmasker(texts[i], top_k=top_k)
-            for elem in res:
+            for elem in pred_single:
                 if elem['sequence'] == labels[i]:
                     in_top_k[i] = 1
         acc = sum(in_top_k) / len(in_top_k)
         return acc
+
+    def predict(self, text_list, top_k=1):
+        MAX_LENGTH = self.model.config.max_position_embeddings
+        def _my_preprocess(self, inputs, return_tensors=None, **preprocess_parameters):
+            if return_tensors is None:
+                return_tensors = self.framework
+            model_inputs = self.tokenizer(inputs, truncation=True, max_length=MAX_LENGTH, return_tensors=return_tensors)
+            self.ensure_exactly_one_mask_token(model_inputs)
+            return model_inputs
+
+        if torch.cuda.is_available():
+            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=0)
+            unmasker.preprocess = types.MethodType(_my_preprocess, unmasker)
+        else:
+            unmasker = pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer, device=-1)
+            unmasker.preprocess = types.MethodType(_my_preprocess, unmasker)
+        predictions = unmasker(text_list, top_k=top_k)
+        return predictions
