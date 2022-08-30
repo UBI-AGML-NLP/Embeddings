@@ -4,12 +4,12 @@ from setuptools import setup
 
 INSTALL_REQUIRES = [
     'setuptools~=50.3.2',
-    'numpy~=1.19.0',
+    'numpy>=1.19.0',
     'torch==1.10.0',
-    'tqdm==4.62.3',
-    'tensorflow==2.5.2',
+    'tqdm>=4.62.3',
+    'tensorflow>=2.5.2',
     'transformers==4.12.2',
-    'scikit-learn==0.23.2'
+    'scikit-learn>=0.23.2'
 ]
 
 version = '1.1'
@@ -18,7 +18,7 @@ setup(name='agml-embedding',
       version=version,
       description='Wrapper for various embedders for NLP',
       long_description_content_type="text/markdown",
-    long_description = open('README.md').read(),
+      long_description = open('README.md').read(),
       url='https://github.com/UBI-AGML-NLP/Embedding',
       packages=['embedding'],
       install_requires=INSTALL_REQUIRES,
