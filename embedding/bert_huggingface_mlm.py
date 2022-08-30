@@ -117,9 +117,21 @@ class BertHuggingfaceMLM(Embedder):
                                           padding='max_length').input_ids.detach().clone()
         return inputs
 
-    def retrain(self, masked_texts, labels, epochs=2):
+    def retrain(self, masked_texts, labels, epochs=2, insert_masks=False):
         losses = []
         inputs = self.create_tokens(masked_texts, labels)
+        if insert_masks:
+            rand = torch.rand(inputs.input_ids.shape)
+            mask_arr = (rand < 0.15) * (inputs.input_ids != 101) * (inputs.input_ids != 102) * (inputs.input_ids != 0)
+            selection = []
+
+            for i in range(inputs.input_ids.shape[0]):
+                selection.append(
+                    torch.flatten(mask_arr[i].nonzero()).tolist()
+                )
+            for i in range(inputs.input_ids.shape[0]):
+                inputs.input_ids[i, selection[i]] = 103
+
         dataset = MLMDataset(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
