@@ -148,6 +148,7 @@ class BertHuggingface(Embedder):
         losses = []
         for _ in range(epochs):
             losses += self.retrain_one_epoch(texts, labels)
+        return losses
 
     def retrain_one_epoch(self, text_list, labels):
         losses = []
