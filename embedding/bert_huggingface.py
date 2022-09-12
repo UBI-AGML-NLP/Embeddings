@@ -147,11 +147,11 @@ class BertHuggingface(Embedder):
     def retrain(self, texts, labels, epochs=2):
         losses = []
         for _ in range(epochs):
-            losses += self.retrain_one_epoch(texts, labels)
+            losses.append(self.retrain_one_epoch(texts, labels))
         return losses
 
     def retrain_one_epoch(self, text_list, labels):
-        losses = []
+        overall_loss = 0
         self.model.train()
         optimizer = AdamW(self.model.parameters(), lr=1e-5)
         self.model.zero_grad()
@@ -181,8 +181,9 @@ class BertHuggingface(Embedder):
                 partial_input)) / self.batch_size  # num_steps alone not completely accurate, as last batch can be smaller than batch_size
             loss /= loss_divider
             loss.backward()
-            losses.append(loss.item())
             loss = loss.detach().item()
+
+            overall_loss += loss
 
             optimizer.step()
             self.model.zero_grad()
@@ -195,4 +196,4 @@ class BertHuggingface(Embedder):
             del partial_labels
         self.model.eval()
         torch.cuda.empty_cache()
-        return losses
+        return overall_loss

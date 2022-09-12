@@ -141,6 +141,7 @@ class BertHuggingfaceMLM(Embedder):
 
         for epoch in range(epochs):
             loop = tqdm(loader, leave=True)
+            epoch_loss = 0
             for batch in loop:
                 # initialize calculated gradients (from prev step)
                 optim.zero_grad()
@@ -167,8 +168,8 @@ class BertHuggingfaceMLM(Embedder):
                 # print relevant info to progress bar
                 loop.set_description(f'Epoch {epoch}')
                 loop.set_postfix(loss=loss.item())
-                losses.append(loss.item())
                 loss = loss.detach().item()
+                epoch_loss += loss
 
                 # put everything back on the cpu
                 if device == 'cuda':
@@ -179,6 +180,7 @@ class BertHuggingfaceMLM(Embedder):
                 del attention_mask
                 del labels
                 del outputs
+            losses.append(epoch_loss)
 
         optim.zero_grad()
         self.model.eval()
