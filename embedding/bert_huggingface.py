@@ -6,8 +6,20 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, Adam
 
 import torch
 from torch.nn import functional as F
-import sklearn
+from tqdm import tqdm
 from sklearn.metrics.classification import precision_recall_fscore_support
+
+
+class BertDataset(torch.utils.data.Dataset):
+
+    def __init__(self, data):
+        self.data = data
+
+    def __getitem__(self, idx):
+        return {key: val[idx].clone().detach() for key, val in self.data.items()}
+
+    def __len__(self):
+        return len(self.data.input_ids)
 
 
 class BertHuggingface(Embedder):
@@ -145,55 +157,61 @@ class BertHuggingface(Embedder):
         return f1
 
     def retrain(self, texts, labels, epochs=2):
+        inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True,
+                                padding='max_length')
+        inputs['labels'] = torch.tensor(labels)
+        dataset = BertDataset(inputs)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+
         losses = []
-        for _ in range(epochs):
-            losses.append(self.retrain_one_epoch(texts, labels))
+        for ep in range(epochs):
+            losses.append(self.retrain_one_epoch(loader, epoch=ep))
         return losses
 
-    def retrain_one_epoch(self, text_list, labels):
+    def retrain_one_epoch(self, loader, epoch=0):
         overall_loss = 0
         self.model.train()
         optimizer = AdamW(self.model.parameters(), lr=1e-5)
-        self.model.zero_grad()
 
-        num_steps = int(math.ceil(len(text_list) / self.batch_size))
-        if self.verbose:
-            print('num_steps', num_steps)
-        for i in range(num_steps):
-            ul = min((i + 1) * self.batch_size, len(text_list))
+        # pull all tensor batches required for training
+        device = 'cpu'
+        if torch.cuda.is_available():
+            device = 'cuda'
 
-            partial_input = text_list[i * self.batch_size:ul]
-            partial_labels = torch.tensor(labels[i * self.batch_size:ul])
-            if torch.cuda.is_available():
-                partial_labels = partial_labels.to('cuda')
-
-            encoding = self.tokenizer(partial_input, return_tensors='pt', padding=True, truncation=True)
-            if torch.cuda.is_available():
-                encoding = encoding.to('cuda')
-            input_ids = encoding['input_ids']
-            attention_mask = encoding['attention_mask']
-
+        loop = tqdm(loader, leave=True)
+        for batch in loop:
+            # initialize calculated gradients (from prev step)
+            optimizer.zero_grad()
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            # process
             outputs = self.model(input_ids, attention_mask=attention_mask)
-            loss = F.cross_entropy(outputs.logits, partial_labels)
-            outputs.logits.to('cpu')
-            # loss = F.mse_loss(outputs.logits, partial_labels)
-            loss_divider = num_steps * float(len(
-                partial_input)) / self.batch_size  # num_steps alone not completely accurate, as last batch can be smaller than batch_size
-            loss /= loss_divider
-            loss.backward()
-            loss = loss.detach().item()
+            # extract loss
+            loss = F.cross_entropy(outputs.logits, labels)
 
+            outputs.logits.to('cpu')
+
+            # calculate loss for every parameter that needs grad update
+            loss.backward()
+
+            # update parameters
+            optimizer.step()
+
+            # print relevant info to progress bar
+            loop.set_description(f'Epoch {epoch}')
+            loop.set_postfix(loss=loss.item())
+
+            loss = loss.detach().item()
             overall_loss += loss
 
-            optimizer.step()
-            self.model.zero_grad()
+            input_ids = input_ids.to('cpu')
+            attention_mask = attention_mask.to('cpu')
+            labels = labels.to('cpu')
+            del input_ids
+            del attention_mask
+            del labels
 
-            if i and not i % 100 and self.verbose:
-                print(i, '/', num_steps)
-            encoding = encoding.to('cpu')
-            partial_labels = partial_labels.to('cpu')
-            del encoding
-            del partial_labels
         self.model.eval()
         torch.cuda.empty_cache()
         return overall_loss
