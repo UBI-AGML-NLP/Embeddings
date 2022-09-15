@@ -156,15 +156,12 @@ class BertHuggingfaceMLM(Embedder):
                 outputs = self.model(input_ids, attention_mask=attention_mask, labels=labels)
                 # extract loss
                 loss = outputs.loss
-                if device == 'cuda':
-                    outputs.logits.to('cpu')
-                    loss.to('cpu')
-
                 # calculate loss for every parameter that needs grad update
                 loss.backward()
 
                 # update parameters
                 optim.step()
+
                 # print relevant info to progress bar
                 loop.set_description(f'Epoch {epoch}')
                 loop.set_postfix(loss=loss.item())
@@ -173,6 +170,7 @@ class BertHuggingfaceMLM(Embedder):
 
                 # put everything back on the cpu
                 if device == 'cuda':
+                    outputs.logits.to('cpu')
                     input_ids = input_ids.to('cpu')
                     attention_mask = attention_mask.to('cpu')
                     labels = labels.to('cpu')
@@ -182,7 +180,6 @@ class BertHuggingfaceMLM(Embedder):
                 del outputs
             losses.append(epoch_loss)
 
-        optim.zero_grad()
         self.model.eval()
         torch.cuda.empty_cache()
         return losses
