@@ -9,10 +9,10 @@ INSTALL_REQUIRES = [
     'tqdm>=4.62.3',
     'tensorflow>=2.5.2',
     'transformers==4.12.2',
-    'scikit-learn>=0.23.2'
+    'scikit-learn>=1.2.1'
 ]
 
-version = '1.1'
+version = '1.2'
 
 setup(name='agml-embedding',
       version=version,

@@ -7,7 +7,8 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, Adam
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
-from sklearn.metrics.classification import precision_recall_fscore_support
+import sklearn
+from sklearn.metrics import precision_recall_fscore_support
 
 
 class BertDataset(torch.utils.data.Dataset):
