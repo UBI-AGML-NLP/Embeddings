@@ -5,7 +5,7 @@ from setuptools import setup
 INSTALL_REQUIRES = [
     'setuptools>=65.5.1',
     'numpy>=1.19.0',
-    'torch==1.13.0',
+    'torch>=1.13.1',
     'tqdm>=4.62.3',
     'tensorflow>=2.5.2',
     'transformers>=4.12.2',
