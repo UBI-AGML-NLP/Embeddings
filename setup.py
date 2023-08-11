@@ -3,12 +3,12 @@ import sys
 from setuptools import setup
 
 INSTALL_REQUIRES = [
-    'setuptools~=50.3.2',
+    'setuptools>=65.5.1',
     'numpy>=1.19.0',
-    'torch==1.10.0',
+    'torch==1.13.0',
     'tqdm>=4.62.3',
     'tensorflow>=2.5.2',
-    'transformers==4.12.2',
+    'transformers>=4.12.2',
     'scikit-learn>=1.2.1'
 ]
 
