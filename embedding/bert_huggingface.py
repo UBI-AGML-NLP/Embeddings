@@ -50,7 +50,8 @@ class BertHuggingface(Embedder):
                                                                         num_labels=self.num_labels,
                                                                         output_hidden_states=True,
                                                                         output_attentions=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, max_length=self.model.config.max_position_embeddings,
+                                                       truncation=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         self.__switch_to_cuda()
