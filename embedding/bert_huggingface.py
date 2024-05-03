@@ -1,40 +1,61 @@
 from .embedder import Embedder
 import numpy as np
-import math
 
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AdamW
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 import torch
-from torch.nn import functional as F
 from tqdm import tqdm
-import sklearn
 from sklearn.metrics import precision_recall_fscore_support
 
 
-class BertDataset(torch.utils.data.Dataset):
+class DatasetForTransformer(torch.utils.data.Dataset):
 
-    def __init__(self, data):
-        self.data = data
+    def __init__(self, encodings):
+        self.encodings = encodings
 
     def __getitem__(self, idx):
-        return {key: val[idx].clone().detach() for key, val in self.data.items()}
+        return {key: val[idx].clone().detach() for key, val in self.encodings.items()}
 
     def __len__(self):
-        return len(self.data.input_ids)
+        return len(self.encodings.input_ids)
 
 
 class BertHuggingface(Embedder):
 
-    def __init__(self, num_labels, model_name=None, batch_size=16, verbose=False):
+    def __init__(self, num_labels: int, model_name: str = None, batch_size: int = 16, verbose: bool = False,
+                 pooling: str = 'mean', optimizer: torch.optim.Optimizer = None,
+                 loss_function: torch.nn.modules.loss._Loss = None, lr=1e-5):
         self.model = None
         self.tokenizer = None
         self.num_labels = num_labels
         super().__init__(model_name=model_name, batch_size=batch_size, verbose=verbose)
 
-    @staticmethod
-    def __first_zero(arr):
-        mask = arr == 0
-        return np.where(mask.any(axis=1), mask.argmax(axis=1), -1)
+        self.lr = lr
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr)
+        if optimizer is not None:
+            print("use custom optimizer")
+            print(optimizer)
+            self.optimizer = optimizer(self.model.parameters(), lr=self.lr)
+
+        self.loss_function = torch.nn.CrossEntropyLoss()
+        if loss_function is not None:
+            print("use custom loss function")
+            self.loss_function = loss_function()
+
+        if pooling not in ['mean', 'cls', 'pooling_layer']:
+            print("pooling strategy %s not supported, default to mean pooling" % pooling)
+            pooling = 'mean'
+        self.pooling = pooling
+        # TODO: which models have a distinct pooling module?
+        if self.pooling == 'cls':
+            if self.tokenizer.cls_token is None:
+                print("this model does not support the cls token, default to mean pooling instead")
+                self.pooling = 'mean'
+                # TODO: for GPT add cls token at end of each input like this: (need to append this manually to end of input and determine the position for each sample
+                # tokenizer.add_special_tokens({'cls_token': '[CLS]'})
+                # model.resize_token_embeddings(len(tokenizer))
+            else:
+                self.default_cls_pos = 0  # default for BERT-like models
 
     def __switch_to_cuda(self):
         if torch.cuda.is_available():
@@ -57,112 +78,105 @@ class BertHuggingface(Embedder):
         self.__switch_to_cuda()
         self.model.eval()
 
-    def embed(self, text_list):
-        # in case we get a tuple instead of a list:
-        text_list = list(text_list)
-
+    def embed(self, texts: list[str], verbose=False):
+        inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
+        dataset = DatasetForTransformer(inputs)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
         outputs = []
-        num_steps = int(math.ceil(len(text_list) / self.batch_size))
-        for i in range(num_steps):
-            ul = min((i + 1) * self.batch_size, len(text_list))
-            partial_input = text_list[i * self.batch_size:ul]
-            encoding = self.tokenizer(partial_input, return_tensors='pt', padding=True, truncation=True)
+
+        for batch in tqdm(loader, leave=True):
             if torch.cuda.is_available():
-                encoding = encoding.to('cuda')
-            input_ids = encoding['input_ids']
-            attention_mask = encoding['attention_mask']
+                for key in batch.keys():
+                    batch[key] = batch[key].to('cuda')
+
+            input_ids = batch['input_ids']
+            attention_mask = batch['attention_mask']
             out = self.model(input_ids, attention_mask=attention_mask)
-            encoding = encoding.to('cpu')
 
-            attentions = out.attentions[-1].to('cpu')
+            token_emb = out.hidden_states[-1]
 
-            hidden_states = out.hidden_states
-            arr = hidden_states[-1].to('cpu')
-            arr = arr.detach().numpy()
+            # pool embedding
+            if self.pooling == 'cls':
+                pooled_emb = out.last_hidden_state[:, 0, :]  # cls is first token
 
+            elif self.pooling == 'pooling_layer':
+                pooled_emb = out.pooler_output  # same name for all models that support this?
+
+            else:  # pooling='mean'
+                attention_repeat = torch.repeat_interleave(attention_mask, token_emb.size()[2]).reshape(
+                    token_emb.size())
+                pooled_emb = torch.sum(token_emb * attention_repeat, dim=1) / torch.sum(attention_repeat, dim=1)
+
+                attention_repeat = attention_repeat.to('cpu')
+                del attention_repeat
+
+            outputs.append(pooled_emb.to('cpu').detach().numpy())
+
+            out = out.logits.to('cpu')
+            input_ids = input_ids.to('cpu')
             attention_mask = attention_mask.to('cpu')
-            att_mask = attention_mask.detach().numpy()
 
-            zeros = self.__first_zero(att_mask)
-            array = []
-            for entry in range(len(partial_input)):
-                attention_masked_non_zero_entries = arr[entry]
-                if zeros[entry] > 0:
-                    attention_masked_non_zero_entries = attention_masked_non_zero_entries[:zeros[entry]]
-                array.append(np.mean(attention_masked_non_zero_entries, axis=0))
-
-            embedding_output = np.asarray(array)
-
-            outputs.append(embedding_output)
-            out = out.logits
-            out = out.to('cpu')
-
-            del encoding
-            del partial_input
             del input_ids
             del attention_mask
+            del pooled_emb
             del out
-            del attentions
-            torch.cuda.empty_cache()
-            if self.verbose and i % 100 == 0:
-                print("at step", i, "of", num_steps)
 
+            torch.cuda.empty_cache()
         return np.vstack(outputs)
 
     def embed_generator(self, text_list_generator):
         for raw_texts in text_list_generator:
             yield self.embed(raw_texts)
 
-    def save(self, path):
+    def save(self, path: str):
         self.model.save_pretrained(path)
 
-    def load(self, path):
+    def load(self, path: str):
         self.model = self.model.to('cpu')
         print('Loading existing model...')
         self.model = AutoModelForSequenceClassification.from_pretrained(path)
         self.__switch_to_cuda()
         self.model.eval()
 
-    def predict(self, text_list):
+    def predict(self, texts: list[str]):
+        inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
+        dataset = DatasetForTransformer(inputs)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
         outputs = []
-        num_steps = int(math.ceil(len(text_list) / self.batch_size))
-        if self.verbose:
-            print('num_steps', num_steps)
-        for i in range(num_steps):
-            ul = min((i + 1) * self.batch_size, len(text_list))
-            partial_input = text_list[i * self.batch_size:ul]
-            encoding = self.tokenizer(partial_input, return_tensors='pt', padding=True, truncation=True)
+
+        for batch in tqdm(loader, leave=True):
             if torch.cuda.is_available():
-                encoding = encoding.to('cuda')
-            input_ids = encoding['input_ids']
-            attention_mask = encoding['attention_mask']
-            out = self.model(input_ids, attention_mask=attention_mask)
-            encoding = encoding.to('cpu')
-            out = out.logits
-            out = out.to('cpu')
+                for key in batch.keys():
+                    batch[key] = batch[key].to('cuda')
 
-            out = out.detach().numpy()
-            outputs.append(out)
+                input_ids = batch['input_ids']
+                attention_mask = batch['attention_mask']
 
-            del encoding
-            del partial_input
-            del input_ids
-            del attention_mask
-            del out
-            torch.cuda.empty_cache()
+                out = self.model(input_ids, attention_mask=attention_mask)
+                encoding = encoding.to('cpu')
+                out = out.logits
+                out = out.to('cpu')
+
+                out = out.detach().numpy()
+                outputs.append(out)
+
+                del input_ids
+                del attention_mask
+                del out
+                torch.cuda.empty_cache()
         return np.vstack(outputs)
 
-    def eval(self, texts, labels):
+    def eval(self, texts: list[str], labels):
         values = self.predict(texts)
         values = [x.argmax() for x in values]
         f1 = precision_recall_fscore_support(labels, values, average='weighted')
         return f1
 
-    def retrain(self, texts, labels, epochs=2):
+    def retrain(self, texts: list[str], labels, epochs: int = 2):
         inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True,
                                 padding='max_length')
         inputs['labels'] = torch.tensor(labels)
-        dataset = BertDataset(inputs)
+        dataset = DatasetForTransformer(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
         losses = []
@@ -170,10 +184,9 @@ class BertHuggingface(Embedder):
             losses.append(self.retrain_one_epoch(loader, epoch=ep))
         return losses
 
-    def retrain_one_epoch(self, loader, epoch=0):
+    def retrain_one_epoch(self, loader: torch.utils.data.DataLoader, epoch: int = 0):
         overall_loss = 0
         self.model.train()
-        optimizer = AdamW(self.model.parameters(), lr=1e-5)
 
         # pull all tensor batches required for training
         device = 'cpu'
@@ -183,14 +196,14 @@ class BertHuggingface(Embedder):
         loop = tqdm(loader, leave=True)
         for batch in loop:
             # initialize calculated gradients (from prev step)
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             labels = batch['labels'].to(device)
             # process
             outputs = self.model(input_ids, attention_mask=attention_mask)
             # extract loss
-            loss = F.cross_entropy(outputs.logits, labels)
+            loss = self.loss_function(outputs.logits, labels)
 
             outputs.logits.to('cpu')
 
@@ -198,7 +211,7 @@ class BertHuggingface(Embedder):
             loss.backward()
 
             # update parameters
-            optimizer.step()
+            self.optimizer.step()
 
             # print relevant info to progress bar
             loop.set_description(f'Epoch {epoch}')
