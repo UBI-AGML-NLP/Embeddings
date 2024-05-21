@@ -14,16 +14,18 @@ NUM_CLASSES = np.max(y_train)+1
 print(NUM_CLASSES)
 
 # training & embedding
-bert = BertHuggingface(NUM_CLASSES, model_name='bert-base-uncased')
+bert = BertHuggingface(NUM_CLASSES, model_name='bert-base-uncased', batch_size=8)
+
+embeddings = bert.embed(text_test)
+print("embedded the test set")
+print("Shape of the embeddings:", embeddings.shape)
 
 bert.retrain(text_train, y_train)
+print("retrained the train set")
 
 pred = bert.predict(text_test)
 y_pred = np.argmax(pred, axis=1)
+print("predicted the test samples")
 print(y_pred.shape)
 print(pred.shape)
 
-embeddings = bert.embed(text_train[:10])
-
-print("Shape of the embeddings:", embeddings.shape)
-print("This means there are 4 embeddings each a vector of size 768!")
