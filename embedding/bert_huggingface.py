@@ -1,10 +1,10 @@
 from .embedder import Embedder
-import numpy as np
 
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import numpy as np
+from tqdm import tqdm
 
 import torch
-from tqdm import tqdm
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from sklearn.metrics import precision_recall_fscore_support
 
 
@@ -42,20 +42,20 @@ class BertHuggingface(Embedder):
             print("use custom loss function")
             self.loss_function = loss_function()
 
+        self.pooling = 'mean'
+        self.default_cls_pos = 0  # default for BERT-like models
+        self.set_pooling(pooling)
+
+    def set_pooling(self, pooling: str = 'mean'):
         if pooling not in ['mean', 'cls', 'pooling_layer']:
             print("pooling strategy %s not supported, default to mean pooling" % pooling)
-            pooling = 'mean'
+            self.pooling = 'mean'
         self.pooling = pooling
         # TODO: which models have a distinct pooling module?
         if self.pooling == 'cls':
             if self.tokenizer.cls_token is None:
-                print("this model does not support the cls token, default to mean pooling instead")
-                self.pooling = 'mean'
-                # TODO: for GPT add cls token at end of each input like this: (need to append this manually to end of input and determine the position for each sample
-                # tokenizer.add_special_tokens({'cls_token': '[CLS]'})
-                # model.resize_token_embeddings(len(tokenizer))
-            else:
-                self.default_cls_pos = 0  # default for BERT-like models
+                self.tokenizer.cls_token_id = self.tokenizer.eos_token_id
+                self.default_cls_pos = -1  # intended for generative models
 
     def __switch_to_cuda(self):
         if torch.cuda.is_available():
@@ -74,12 +74,36 @@ class BertHuggingface(Embedder):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, max_length=self.model.config.max_position_embeddings,
                                                        truncation=True)
         if self.tokenizer.pad_token is None:
-            self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+#            self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+#            self.model.resize_token_embeddings(len(self.tokenizer))
+            self.tokenizer.padding_side = "left"  # for generator models
+        self.__switch_to_cuda()
+        self.model.eval()
+
+    def save(self, path: str):
+        self.model.save_pretrained(path)
+
+    def load(self, path: str):
+        self.model = self.model.to('cpu')
+        print('Loading existing model...')
+        self.model = AutoModelForSequenceClassification.from_pretrained(path)
         self.__switch_to_cuda()
         self.model.eval()
 
     def embed(self, texts: list[str], verbose=False):
-        inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
+        max_length = 512
+        if self.default_cls_pos == -1:  # gpt
+            # need to manually set the cls token at the end
+            inputs = self.tokenizer(texts, return_tensors='pt', max_length=max_length-1, truncation=True,
+                                    padding='max_length')
+            cls = (torch.ones(inputs['input_ids'].size()[0], 1) * self.tokenizer.cls_token_id).type(inputs['input_ids'].type())
+            inputs['input_ids'] = torch.cat((inputs['input_ids'], cls), 1)
+            attention = torch.zeros(inputs['input_ids'].size()[0], 1).type(inputs['attention_mask'].type())
+            inputs['attention_mask'] = torch.cat((inputs['attention_mask'], attention), 1)
+        else:
+            inputs = self.tokenizer(texts, return_tensors='pt', max_length=max_length, truncation=True,
+                                    padding='max_length')
         dataset = DatasetForTransformer(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
         outputs = []
@@ -91,18 +115,20 @@ class BertHuggingface(Embedder):
 
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
-            out = self.model(input_ids, attention_mask=attention_mask)
-
-            token_emb = out.hidden_states[-1]
 
             # pool embedding
             if self.pooling == 'cls':
-                pooled_emb = out.last_hidden_state[:, 0, :]  # cls is first token
+                out = self.model(input_ids, attention_mask=attention_mask)
+                token_emb = out.hidden_states[-1]
+                pooled_emb = token_emb[:, 0, :]  # cls is first token
 
             elif self.pooling == 'pooling_layer':
+                out = self.model.bert(batch['input_ids'], attention_mask=batch['attention_mask'])
                 pooled_emb = out.pooler_output  # same name for all models that support this?
 
             else:  # pooling='mean'
+                out = self.model(input_ids, attention_mask=attention_mask)
+                token_emb = out.hidden_states[-1]
                 attention_repeat = torch.repeat_interleave(attention_mask, token_emb.size()[2]).reshape(
                     token_emb.size())
                 pooled_emb = torch.sum(token_emb * attention_repeat, dim=1) / torch.sum(attention_repeat, dim=1)
@@ -112,31 +138,18 @@ class BertHuggingface(Embedder):
 
             outputs.append(pooled_emb.to('cpu').detach().numpy())
 
-            out = out.logits.to('cpu')
             input_ids = input_ids.to('cpu')
             attention_mask = attention_mask.to('cpu')
 
             del input_ids
             del attention_mask
             del pooled_emb
-            del out
-
             torch.cuda.empty_cache()
         return np.vstack(outputs)
 
     def embed_generator(self, text_list_generator):
         for raw_texts in text_list_generator:
             yield self.embed(raw_texts)
-
-    def save(self, path: str):
-        self.model.save_pretrained(path)
-
-    def load(self, path: str):
-        self.model = self.model.to('cpu')
-        print('Loading existing model...')
-        self.model = AutoModelForSequenceClassification.from_pretrained(path)
-        self.__switch_to_cuda()
-        self.model.eval()
 
     def predict(self, texts: list[str]):
         inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
@@ -153,16 +166,16 @@ class BertHuggingface(Embedder):
                 attention_mask = batch['attention_mask']
 
                 out = self.model(input_ids, attention_mask=attention_mask)
-                encoding = encoding.to('cpu')
-                out = out.logits
-                out = out.to('cpu')
+                out = out.logits.to('cpu')
 
                 out = out.detach().numpy()
                 outputs.append(out)
 
+                input_ids = input_ids.to('cpu')
+                attention_mask = attention_mask.to('cpu')
+
                 del input_ids
                 del attention_mask
-                del out
                 torch.cuda.empty_cache()
         return np.vstack(outputs)
 
@@ -205,8 +218,6 @@ class BertHuggingface(Embedder):
             # extract loss
             loss = self.loss_function(outputs.logits, labels)
 
-            outputs.logits.to('cpu')
-
             # calculate loss for every parameter that needs grad update
             loss.backward()
 
@@ -220,6 +231,7 @@ class BertHuggingface(Embedder):
             loss = loss.detach().item()
             overall_loss += loss
 
+            outputs.logits.to('cpu')
             input_ids = input_ids.to('cpu')
             attention_mask = attention_mask.to('cpu')
             labels = labels.to('cpu')

@@ -1,4 +1,5 @@
-from .embedder import Embedder
+from .bert_huggingface import BertHuggingface, DatasetForTransformer
+
 import numpy as np
 import math
 from transformers import AutoModelForMaskedLM, AutoTokenizer, AdamW, pipeline
@@ -9,36 +10,20 @@ import string
 import types
 
 
-def first_zero(arr):
-    mask = arr == 0
-    return np.where(mask.any(axis=1), mask.argmax(axis=1), -1)
+class BertHuggingfaceMLM(BertHuggingface):
 
-
-class MLMDataset(torch.utils.data.Dataset):
-
-    def __init__(self, encodings):
-        self.encodings = encodings
-
-    def __getitem__(self, idx):
-        return {key: val[idx].clone().detach() for key, val in self.encodings.items()}
-
-    def __len__(self):
-        return len(self.encodings.input_ids)
-
-
-class BertHuggingfaceMLM(Embedder):
-
-    def __init__(self, model_name=None, batch_size=16, verbose=False):
+    def __init__(self, model_name: str = None, batch_size: int = 16, verbose: bool = False,
+                 pooling: str = 'mean', optimizer: torch.optim.Optimizer = None,
+                 loss_function: torch.nn.modules.loss._Loss = None, lr=1e-5):
         self.model = None
         self.tokenizer = None
-        super().__init__(model_name=model_name, batch_size=batch_size, verbose=verbose)
 
-    def __switch_to_cuda(self):
-        if torch.cuda.is_available():
-            self.model = self.model.to('cuda')
-            print('Using Bert with CUDA/GPU')
-        else:
-            print('WARNING! Using Bert on CPU!')
+        if pooling == 'pooling_layer':
+            print("pooling_layer not supported in MLM, default to mean pooling instead")
+            pooling = 'mean'
+
+        super().__init__(num_labels=1, model_name=model_name, batch_size=batch_size, verbose=verbose, pooling=pooling,
+                         optimizer=optimizer, loss_function=loss_function, lr=lr)
 
     def prepare(self, **kwargs):
         model_name = kwargs.pop('model_name') or 'bert-base-uncased'
@@ -48,58 +33,15 @@ class BertHuggingfaceMLM(Embedder):
         self.__switch_to_cuda()
         self.model.eval()
 
-    def embed(self, text_list):
-        # in case we get a tuple instead of a list:
-        text_list = list(text_list)
+    def __switch_to_cuda(self):
+        if torch.cuda.is_available():
+            self.model = self.model.to('cuda')
+            print('Using Bert with CUDA/GPU')
+        else:
+            print('WARNING! Using Bert on CPU!')
 
-        outputs = []
-        num_steps = int(math.ceil(len(text_list) / self.batch_size))
-        for i in range(num_steps):
-            ul = min((i + 1) * self.batch_size, len(text_list))
-            partial_input = text_list[i * self.batch_size:ul]
-            encoding = self.tokenizer(partial_input, return_tensors='pt', padding=True, truncation=True)
-            if torch.cuda.is_available():
-                encoding = encoding.to('cuda')
-            input_ids = encoding['input_ids']
-            attention_mask = encoding['attention_mask']
-            out = self.model(input_ids, attention_mask=attention_mask)
-            encoding = encoding.to('cpu')
-
-            hidden_states = out.hidden_states
-
-            arr = hidden_states[-1].to('cpu')
-            arr = arr.detach().numpy()
-
-            attention_mask = attention_mask.to('cpu')
-            att_mask = attention_mask.detach().numpy()
-
-            zeros = first_zero(att_mask)
-            array = []
-            for entry in range(len(partial_input)):
-                attention_masked_non_zero_entries = arr[entry]
-                if zeros[entry] > 0:
-                    attention_masked_non_zero_entries = attention_masked_non_zero_entries[:zeros[entry]]
-                array.append(np.mean(attention_masked_non_zero_entries, axis=0))
-
-            embedding_output = np.asarray(array)
-
-            outputs.append(embedding_output)
-            out = out.logits
-            out = out.to('cpu')
-
-            del encoding
-            del partial_input
-            del input_ids
-            del attention_mask
-            del out
-            torch.cuda.empty_cache()
-            if self.verbose and i % 100 == 0:
-                print("at step", i, "of", num_steps)
-
-        return np.vstack(outputs)
-
-    def save(self, path):
-        self.model.save_pretrained(path)
+    def save(self, path: str):
+        super().save(path=path)
 
     def load(self, path):
         self.model = self.model.to('cpu')
@@ -107,6 +49,9 @@ class BertHuggingfaceMLM(Embedder):
         self.model = AutoModelForMaskedLM.from_pretrained(path, return_dict=True, output_hidden_states=True)
         self.__switch_to_cuda()
         self.model.eval()
+
+    def embed(self, texts: list[str], verbose=False):
+        return super().embed(texts=texts, verbose=verbose)
 
     def unmask_pipeline(self):
         return pipeline('fill-mask', model=self.model, tokenizer=self.tokenizer)
@@ -133,22 +78,23 @@ class BertHuggingfaceMLM(Embedder):
             for i in range(inputs.input_ids.shape[0]):
                 inputs.input_ids[i, selection[i]] = 103
 
-        dataset = MLMDataset(inputs)
+        dataset = DatasetForTransformer(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
-
         self.model.train()
-        optim = AdamW(self.model.parameters(), lr=5e-5)
+
+        # pull all tensor batches required for training
+        device = 'cpu'
+        if torch.cuda.is_available():
+            device = 'cuda'
 
         for epoch in range(epochs):
             loop = tqdm(loader, leave=True)
             epoch_loss = 0
+
             for batch in loop:
                 # initialize calculated gradients (from prev step)
-                optim.zero_grad()
+                self.optimizer.zero_grad()
                 # pull all tensor batches required for training
-                device = 'cpu'
-                if torch.cuda.is_available():
-                    device = 'cuda'
                 input_ids = batch['input_ids'].to(device)
                 attention_mask = batch['attention_mask'].to(device)
                 labels = batch['labels'].to(device)
@@ -160,7 +106,7 @@ class BertHuggingfaceMLM(Embedder):
                 loss.backward()
 
                 # update parameters
-                optim.step()
+                self.optimizer.step()
 
                 # print relevant info to progress bar
                 loop.set_description(f'Epoch {epoch}')
@@ -169,11 +115,10 @@ class BertHuggingfaceMLM(Embedder):
                 epoch_loss += loss
 
                 # put everything back on the cpu
-                if device == 'cuda':
-                    outputs.logits.to('cpu')
-                    input_ids = input_ids.to('cpu')
-                    attention_mask = attention_mask.to('cpu')
-                    labels = labels.to('cpu')
+                input_ids = input_ids.to('cpu')
+                attention_mask = attention_mask.to('cpu')
+                labels = labels.to('cpu')
+                outputs.logits.to('cpu')
                 del input_ids
                 del attention_mask
                 del labels
