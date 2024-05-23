@@ -51,11 +51,23 @@ class BertHuggingface(Embedder):
             print("pooling strategy %s not supported, default to mean pooling" % pooling)
             self.pooling = 'mean'
         self.pooling = pooling
-        # TODO: which models have a distinct pooling module?
+
         if self.pooling == 'cls':
             if self.tokenizer.cls_token is None:
                 self.tokenizer.cls_token_id = self.tokenizer.eos_token_id
-                self.default_cls_pos = -1  # intended for generative models
+                self.default_cls_pos = -1
+
+        if self.pooling == 'pooling_layer':
+            # verfiy that the model has a pooling layer
+            key, self.main_module = next(iter(self.model._modules.items()))
+            self.pooling_layers = []
+            for k in self.main_module._modules.keys():
+                if 'pooler' in k:
+                    self.pooling_layers.append(k)
+
+            if len(self.pooling_layers) == 0:
+                print("did not find a pooling layer, default to mean pooling")
+                self.pooling = 'mean'
 
     def __switch_to_cuda(self):
         if torch.cuda.is_available():
@@ -74,9 +86,9 @@ class BertHuggingface(Embedder):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, max_length=self.model.config.max_position_embeddings,
                                                        truncation=True)
         if self.tokenizer.pad_token is None:
+            print("manually define padding token for model %s" % model_name)
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-#            self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-#            self.model.resize_token_embeddings(len(self.tokenizer))
+            self.model.config.pad_token_id = self.tokenizer.pad_token_id
             self.tokenizer.padding_side = "left"  # for generator models
         self.__switch_to_cuda()
         self.model.eval()
@@ -123,7 +135,7 @@ class BertHuggingface(Embedder):
                 pooled_emb = token_emb[:, 0, :]  # cls is first token
 
             elif self.pooling == 'pooling_layer':
-                out = self.model.bert(batch['input_ids'], attention_mask=batch['attention_mask'])
+                out = self.main_module(batch['input_ids'], attention_mask=batch['attention_mask'])
                 pooled_emb = out.pooler_output  # same name for all models that support this?
 
             else:  # pooling='mean'
