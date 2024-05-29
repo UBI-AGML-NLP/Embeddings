@@ -18,10 +18,6 @@ class BertHuggingfaceMLM(BertHuggingface):
         self.model = None
         self.tokenizer = None
 
-        #if not pooling == 'mean':
-        #    print("pooling strategy '%s' not supported in MLM, default to mean pooling instead")
-        #    pooling = 'mean'
-
         super().__init__(num_labels=1, model_name=model_name, batch_size=batch_size, verbose=verbose, pooling=pooling,
                          optimizer=optimizer, loss_function=loss_function, lr=lr)
 

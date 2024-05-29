@@ -31,16 +31,20 @@ class BertHuggingface(Embedder):
         super().__init__(model_name=model_name, batch_size=batch_size, verbose=verbose)
 
         self.lr = lr
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr)
         if optimizer is not None:
             print("use custom optimizer")
             print(optimizer)
             self.optimizer = optimizer(self.model.parameters(), lr=self.lr)
+        else:
+            print("no optmizer specified, default to AdamW")
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr)
 
-        self.loss_function = torch.nn.CrossEntropyLoss()
         if loss_function is not None:
             print("use custom loss function")
             self.loss_function = loss_function()
+        else:
+            print("no loss specified, default to cross entropy")
+            self.loss_function = torch.nn.CrossEntropyLoss()
 
         self.pooling = 'mean'
         self.default_cls_pos = 0  # default for BERT-like models
