@@ -121,7 +121,7 @@ class BertHuggingface(Embedder):
             inputs = self.tokenizer(texts, return_tensors='pt', max_length=max_length, truncation=True,
                                     padding='max_length')
         dataset = DatasetForTransformer(inputs)
-        loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
         outputs = []
 
         for batch in tqdm(loader, leave=True):
@@ -170,7 +170,7 @@ class BertHuggingface(Embedder):
     def predict(self, texts: list[str]):
         inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
         dataset = DatasetForTransformer(inputs)
-        loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
         outputs = []
 
         for batch in tqdm(loader, leave=True):
