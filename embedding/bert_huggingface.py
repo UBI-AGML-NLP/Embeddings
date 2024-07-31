@@ -136,7 +136,7 @@ class BertHuggingface(Embedder):
             if self.pooling == 'cls':
                 out = self.model(input_ids, attention_mask=attention_mask)
                 token_emb = out.hidden_states[-1]
-                pooled_emb = token_emb[:, 0, :]  # cls is first token
+                pooled_emb = token_emb[:, self.default_cls_pos, :]
 
             elif self.pooling == 'pooling_layer':
                 out = self.main_module(batch['input_ids'], attention_mask=batch['attention_mask'])
