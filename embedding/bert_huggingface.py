@@ -24,7 +24,7 @@ class BertHuggingface(Embedder):
 
     def __init__(self, num_labels: int, model_name: str = None, batch_size: int = 16, verbose: bool = False,
                  pooling: str = 'mean', optimizer: torch.optim.Optimizer = None,
-                 loss_function: torch.nn.modules.loss._Loss = None, lr=1e-5):
+                 loss_function: torch.nn.modules.loss._Loss = None, lr=1e-5, class_weights=None):
         self.model = None
         self.tokenizer = None
         self.num_labels = num_labels
@@ -39,12 +39,18 @@ class BertHuggingface(Embedder):
             print("no optmizer specified, default to AdamW")
             self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr)
 
-        if loss_function is not None:
-            print("use custom loss function")
-            self.loss_function = loss_function()
+        if loss_function is None:
+            print("no loss function specified, default to cross entropy")
+            loss_function = torch.nn.CrossEntropyLoss
+
+        if class_weights is not None:
+            print("use positive class weights")
+            class_weights = torch.tensor(class_weights)
+            if torch.cuda.is_available():
+                class_weights = class_weights.to('cuda')
+            self.loss_function = loss_function(pos_weight=class_weights)
         else:
-            print("no loss specified, default to cross entropy")
-            self.loss_function = torch.nn.CrossEntropyLoss()
+            self.loss_function = loss_function()
 
         self.pooling = 'mean'
         self.default_cls_pos = 0  # default for BERT-like models
