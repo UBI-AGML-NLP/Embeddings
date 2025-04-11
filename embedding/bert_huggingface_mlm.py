@@ -2,7 +2,7 @@ from .bert_huggingface import BertHuggingface, DatasetForTransformer
 
 import numpy as np
 import math
-from transformers import AutoModelForMaskedLM, AutoTokenizer, AdamW, pipeline
+from transformers import AutoModelForMaskedLM, AutoTokenizer, pipeline
 import torch
 from tqdm import tqdm
 import random
