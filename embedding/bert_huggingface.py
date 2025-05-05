@@ -93,7 +93,14 @@ class BertHuggingface(Embedder):
                                                                         num_labels=self.num_labels,
                                                                         output_hidden_states=True,
                                                                         output_attentions=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, max_length=self.model.config.max_position_embeddings,
+        
+        # Different model families use different names for the 'max position' field
+        typical_fields = ["max_position_embeddings", "n_positions", "seq_len", "seq_length", "n_ctx", "sliding_window"]  
+        context_windows = [getattr(self.model.config, field) for field in typical_fields if field in dir(self.model.config)]
+        print(context_windows[0]) if len(context_windows) else print(f"No Max input variable found for {model_name}")
+        max_pos = context_windows.pop()
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, max_length=max_pos,
                                                        truncation=True)
         if self.tokenizer.pad_token is None:
             print("manually define padding token for model %s" % model_name)
@@ -141,7 +148,10 @@ class BertHuggingface(Embedder):
             # pool embedding
             if self.pooling == 'cls':
                 out = self.model(input_ids, attention_mask=attention_mask)
-                token_emb = out.hidden_states[-1]
+                if self.model.config.is_encoder_decoder:
+                    token_emb = out.encoder_hidden_states[-1]
+                else:
+                    token_emb = out.hidden_states[-1]
                 pooled_emb = token_emb[:, self.default_cls_pos, :]
 
             elif self.pooling == 'pooling_layer':
@@ -150,7 +160,10 @@ class BertHuggingface(Embedder):
 
             else:  # pooling='mean'
                 out = self.model(input_ids, attention_mask=attention_mask)
-                token_emb = out.hidden_states[-1]
+                if self.model.config.is_encoder_decoder:
+                    token_emb = out.encoder_hidden_states[-1]
+                else:
+                    token_emb = out.hidden_states[-1]
                 attention_repeat = torch.repeat_interleave(attention_mask, token_emb.size()[2]).reshape(
                     token_emb.size())
                 pooled_emb = torch.sum(token_emb * attention_repeat, dim=1) / torch.sum(attention_repeat, dim=1)
