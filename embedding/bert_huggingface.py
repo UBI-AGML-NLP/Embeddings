@@ -104,8 +104,14 @@ class BertHuggingface(Embedder):
                                                        truncation=True)
         if self.tokenizer.pad_token is None:
             print("manually define padding token for model %s" % model_name)
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-            self.model.config.pad_token_id = self.tokenizer.pad_token_id
+            if self.tokenizer.eos_token_id is None:
+                print("no <eos> token set for this model, use <unk> token as <pad> token")
+                self.tokenizer.pad_token_id = self.tokenizer.unk_token_id
+                self.model.config.pad_token_id = self.tokenizer.unk_token_id
+            else:
+                print("use <eos> token as <pad> token")
+                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+                self.model.config.pad_token_id = self.tokenizer.pad_token_id
             self.tokenizer.padding_side = "left"  # for generator models
         self.__switch_to_cuda()
         self.model.eval()
