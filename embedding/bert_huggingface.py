@@ -14,7 +14,9 @@ class DatasetForTransformer(torch.utils.data.Dataset):
         self.encodings = encodings
 
     def __getitem__(self, idx):
-        return {key: val[idx].clone().detach() for key, val in self.encodings.items()}
+        item = {key: val[idx].clone().detach() for key, val in self.encodings.items()}
+        item['index'] = idx
+        return item
 
     def __len__(self):
         return len(self.encodings.input_ids)
@@ -132,8 +134,8 @@ class BertHuggingface(Embedder):
             # need to manually set the cls token at the end
             inputs = self.tokenizer(texts, return_tensors='pt', max_length=max_length-1, truncation=True,
                                     padding='max_length')
-            cls = (torch.ones(inputs['input_ids'].size()[0], 1) * self.tokenizer.cls_token_id).type(inputs['input_ids'].type())
-            inputs['input_ids'] = torch.cat((inputs['input_ids'], cls), 1)
+            cls_emb = (torch.ones(inputs['input_ids'].size()[0], 1) * self.tokenizer.cls_token_id).type(inputs['input_ids'].type())
+            inputs['input_ids'] = torch.cat((inputs['input_ids'], cls_emb), 1)
             attention = torch.zeros(inputs['input_ids'].size()[0], 1).type(inputs['attention_mask'].type())
             inputs['attention_mask'] = torch.cat((inputs['attention_mask'], attention), 1)
         else:
@@ -141,8 +143,8 @@ class BertHuggingface(Embedder):
                                     padding='max_length')
         dataset = DatasetForTransformer(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
-        outputs = []
 
+        outputs = np.zeros((len(texts), self.model.config.hidden_size))
         for batch in tqdm(loader, leave=True):
             if torch.cuda.is_available():
                 for key in batch.keys():
@@ -150,6 +152,7 @@ class BertHuggingface(Embedder):
 
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
+            indices = batch['index']
 
             # pool embedding
             if self.pooling == 'cls':
@@ -177,7 +180,7 @@ class BertHuggingface(Embedder):
                 attention_repeat = attention_repeat.to('cpu')
                 del attention_repeat
 
-            outputs.append(pooled_emb.to('cpu').detach().numpy())
+            outputs[indices.numpy()] = pooled_emb.to('cpu').detach().numpy()
 
             input_ids = input_ids.to('cpu')
             attention_mask = attention_mask.to('cpu')
@@ -186,7 +189,7 @@ class BertHuggingface(Embedder):
             del attention_mask
             del pooled_emb
             torch.cuda.empty_cache()
-        return np.vstack(outputs)
+        return outputs
 
     def embed_generator(self, text_list_generator):
         for raw_texts in text_list_generator:
@@ -196,8 +199,8 @@ class BertHuggingface(Embedder):
         inputs = self.tokenizer(texts, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
         dataset = DatasetForTransformer(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
-        outputs = []
-
+        
+        outputs = np.zeros((len(texts), self.num_labels))
         for batch in tqdm(loader, leave=True):
             if torch.cuda.is_available():
                 for key in batch.keys():
@@ -205,12 +208,13 @@ class BertHuggingface(Embedder):
 
                 input_ids = batch['input_ids']
                 attention_mask = batch['attention_mask']
+                indices = batch['index']
 
                 out = self.model(input_ids, attention_mask=attention_mask)
                 out = out.logits.to('cpu')
 
                 out = out.detach().numpy()
-                outputs.append(out)
+                outputs[indices.numpy()] = pooled_emb.to('cpu').detach().numpy()
 
                 input_ids = input_ids.to('cpu')
                 attention_mask = attention_mask.to('cpu')
@@ -218,7 +222,7 @@ class BertHuggingface(Embedder):
                 del input_ids
                 del attention_mask
                 torch.cuda.empty_cache()
-        return np.vstack(outputs)
+        return outputs
 
     def eval(self, texts: list[str], labels):
         values = self.predict(texts)
