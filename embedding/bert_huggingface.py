@@ -147,7 +147,7 @@ class BertHuggingface(Embedder):
         outputs = np.zeros((len(texts), self.model.config.hidden_size))
         for batch in tqdm(loader, leave=True):
             if torch.cuda.is_available():
-                for key in batch.keys()
+                for key in batch.keys():
                     if key != 'index':
                         batch[key] = batch[key].to('cuda')
 
@@ -204,7 +204,7 @@ class BertHuggingface(Embedder):
         outputs = np.zeros((len(texts), self.num_labels))
         for batch in tqdm(loader, leave=True):
             if torch.cuda.is_available():
-                for key in batch.keys()
+                for key in batch.keys():
                     if key != 'index':
                         batch[key] = batch[key].to('cuda')
 
