@@ -32,6 +32,13 @@ class BertHuggingface(Embedder):
         self.num_labels = num_labels
         super().__init__(model_name=model_name, batch_size=batch_size, verbose=verbose)
 
+        # get embedding dim
+        if 'facebook/opt' in model_name:
+            self.emb_dim = self.model.config.word_embed_proj_dim
+        else:
+            self.emb_dim = self.model.config.hidden_size
+        print("set emb dim to ", self.emb_dim)
+
         self.lr = lr
         if optimizer is not None:
             print("use custom optimizer")
@@ -144,7 +151,7 @@ class BertHuggingface(Embedder):
         dataset = DatasetForTransformer(inputs)
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
 
-        outputs = np.zeros((len(texts), self.model.config.hidden_size))
+        outputs = np.zeros((len(texts), self.emb_dim))
         for batch in tqdm(loader, leave=True):
             if torch.cuda.is_available():
                 for key in batch.keys():
