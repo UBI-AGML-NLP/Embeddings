@@ -14,7 +14,7 @@ def sententence_generator():
         yield sentences
 
 # embedding
-bert = BertHuggingface(NUM_CLASSES)
+bert = BertHuggingface(NUM_CLASSES, model_name='bert-base-uncased', batch_size=8)
 embeddings = []
 for y in bert.embed_generator(sententence_generator()):
     embeddings.append(y)

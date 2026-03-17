@@ -16,7 +16,7 @@ masked_sentences = [
 ]
 
 # training & embedding
-bert = BertHuggingfaceMLM()
+bert = BertHuggingfaceMLM(model_name='bert-base-uncased', batch_size=8)
 
 predictions = bert.predict(masked_sentences)
 

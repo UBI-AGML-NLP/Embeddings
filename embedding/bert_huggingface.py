@@ -24,7 +24,7 @@ class DatasetForTransformer(torch.utils.data.Dataset):
 
 class BertHuggingface(Embedder):
 
-    def __init__(self, num_labels: int, model_name: str = None, batch_size: int = 16, verbose: bool = False,
+    def __init__(self, num_labels: int, model_name: str, batch_size: int = 16, verbose: bool = False,
                  pooling: str = 'mean', optimizer: torch.optim.Optimizer = None,
                  loss_function: torch.nn.modules.loss._Loss = None, lr=1e-5, class_weights=None):
         self.model = None

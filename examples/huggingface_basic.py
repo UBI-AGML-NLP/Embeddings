@@ -8,7 +8,7 @@ sentences = [
 ]
 
 # embedding
-bert = BertHuggingface(NUM_CLASSES)
+bert = BertHuggingface(NUM_CLASSES, model_name='bert-base-uncased', batch_size=8)
 embeddings = bert.embed(sentences)
 
 print("Shape of the embeddings:", embeddings.shape)

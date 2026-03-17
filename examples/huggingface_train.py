@@ -16,7 +16,7 @@ labels = [
 ]
 
 # training & embedding
-bert = BertHuggingface(NUM_CLASSES, model_name='bert-base-uncased')
+bert = BertHuggingface(NUM_CLASSES, model_name='bert-base-uncased', batch_size=8)
 
 bert.retrain(sentences, labels)
 
