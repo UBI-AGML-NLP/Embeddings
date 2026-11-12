@@ -222,8 +222,7 @@ class BertHuggingface(Embedder):
                 out = self.model(input_ids, attention_mask=attention_mask)
                 out = out.logits.to('cpu')
 
-                out = out.detach().numpy()
-                outputs[indices.numpy()] = pooled_emb.to('cpu').detach().numpy()
+                outputs[indices.numpy()] = out.detach().numpy()
 
                 input_ids = input_ids.to('cpu')
                 attention_mask = attention_mask.to('cpu')
