@@ -7,7 +7,6 @@ INSTALL_REQUIRES = [
     'numpy>=1.19.0',
     'torch>=1.13.1',
     'tqdm>=4.62.3',
-    'tensorflow>=2.5.2',
     'transformers>=4.12.2',
     'scikit-learn>=1.2.1'
 ]
@@ -24,7 +23,7 @@ setup(name='agml-embedding',
       install_requires=INSTALL_REQUIRES,
       extras_require={
           'ukplab': ['sentence_transformers==2.1.0'],
-          'use': ['tensorflow_hub==0.12.0'],
+          'use': ['tensorflow>=2.5.2', 'tensorflow_hub==0.12.0'],
           'doc2vec': ['gensim==3.8.3']
       }
       )
