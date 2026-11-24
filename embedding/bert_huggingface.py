@@ -188,7 +188,7 @@ class BertHuggingface(Embedder):
                 attention_repeat = attention_repeat.to('cpu')
                 del attention_repeat
 
-            outputs[indices.numpy()] = pooled_emb.to('cpu').detach().numpy()
+            outputs[indices.numpy()] = pooled_emb.detach().float().to('cpu').numpy()
 
             input_ids = input_ids.to('cpu')
             attention_mask = attention_mask.to('cpu')
@@ -220,9 +220,8 @@ class BertHuggingface(Embedder):
                 indices = batch['index']
 
                 out = self.model(input_ids, attention_mask=attention_mask)
-                out = out.logits.to('cpu')
 
-                outputs[indices.numpy()] = out.detach().numpy()
+                outputs[indices.numpy()] = out.logits.detach().float().to('cpu').numpy()
 
                 input_ids = input_ids.to('cpu')
                 attention_mask = attention_mask.to('cpu')
