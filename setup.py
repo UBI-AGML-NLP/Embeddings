@@ -7,7 +7,8 @@ INSTALL_REQUIRES = [
     'numpy>=1.19.0',
     'torch>=1.13.1',
     'tqdm>=4.62.3',
-    'transformers>=4.12.2',
+    'transformers>=5.1.0',
+    'sentence-transformers>=5.6.0',
     'scikit-learn>=1.2.1'
 ]
 
