@@ -111,19 +111,29 @@ class BertHuggingface(Embedder):
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, max_length=max_pos,
                                                        truncation=True)
-        if self.tokenizer.pad_token is None:
-            print("manually define padding token for model %s" % model_name)
-            if self.tokenizer.eos_token_id is None:
-                print("no <eos> token set for this model, use <unk> token as <pad> token")
-                self.tokenizer.pad_token_id = self.tokenizer.unk_token_id
-                self.model.config.pad_token_id = self.tokenizer.unk_token_id
-            else:
-                print("use <eos> token as <pad> token")
-                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-                self.model.config.pad_token_id = self.tokenizer.pad_token_id
-            self.tokenizer.padding_side = "left"  # for generator models
+        self._ensure_pad_token()
         self.__switch_to_cuda()
         self.model.eval()
+
+    def _ensure_pad_token(self):
+        tok = self.tokenizer
+        if tok.pad_token is None:
+            print("manually define padding token for model %s" % self.model.config.name_or_path)
+            if tok.eos_token is not None:
+                print("use <eos> token as <pad> token")
+                tok.pad_token = tok.eos_token
+            elif tok.unk_token is not None:
+                print("no <eos> token set for this model, use <unk> token as <pad> token")
+                tok.pad_token = tok.unk_token
+            else:
+                print("no <eos>/<unk> token, add new [PAD] token")
+                tok.add_special_tokens({'pad_token': '[PAD]'})
+                self.model.resize_token_embeddings(len(tok))
+            tok.padding_side = "left"  # for generator models
+        # always sync the model config, even if the tokenizer already had a pad token
+        self.model.config.pad_token_id = tok.pad_token_id
+        if getattr(self.model, "generation_config", None) is not None:
+            self.model.generation_config.pad_token_id = tok.pad_token_id
 
     def save(self, path: str):
         self.model.save_pretrained(path)
@@ -131,7 +141,11 @@ class BertHuggingface(Embedder):
     def load(self, path: str):
         self.model = self.model.to('cpu')
         print('Loading existing model...')
-        self.model = AutoModelForSequenceClassification.from_pretrained(path)
+        self.model = AutoModelForSequenceClassification.from_pretrained(path, return_dict=True,
+                                                                        num_labels=self.num_labels,
+                                                                        output_hidden_states=True,
+                                                                        output_attentions=True)
+        self._ensure_pad_token()
         self.__switch_to_cuda()
         self.model.eval()
 
